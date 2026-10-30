@@ -12,14 +12,15 @@ jobs:
     timeout-minutes: 340
     steps:
       - uses: actions/checkout@v4
+      # The Gazette's server sends its own certificate only. Add the two Let's Encrypt certificates it names, so curl can check the chain.
+      - name: Complete the certificate chain
+        run: |
+          cp /etc/ssl/certs/ca-certificates.crt "$RUNNER_TEMP/ca.pem"
+          for u in http://yr1.i.lencr.org/ http://yr.i.lencr.org/; do curl -sL -m 20 "$u" | openssl x509 -inform der >> "$RUNNER_TEMP/ca.pem"; done
+          echo "CURL_CA_BUNDLE=$RUNNER_TEMP/ca.pem" >> "$GITHUB_ENV"
       - name: Probe the Gazette
         if: ${{ github.event.inputs.mode == 'probe' }}
-        run: |
-          curl -s -m 15 https://ipinfo.io/json | grep -E '"(ip|country|region|org)"' || true
-          for u in https://egazette.gov.in/ https://www.legislative.gov.in/ https://www.google.com/; do
-            curl -s -o /dev/null -m 25 -w "$u http=%{http_code} ip=%{remote_ip} connect=%{time_connect}s total=%{time_total}s\n" "$u" || echo "$u failed exit $?"
-          done
-          getent hosts egazette.gov.in || true
+        run: python3 -I collect.py probe
       - name: One capped run
         if: ${{ github.event.inputs.mode != 'probe' }}
         run: python3 -I collect.py index 300
