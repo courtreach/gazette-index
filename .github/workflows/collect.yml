@@ -33,6 +33,7 @@ jobs:
           MS_REFRESH: ${{ secrets.MS_REFRESH }}
         run: |
           if [ -n "$MS_REFRESH" ]; then python3 -I collect.py fetch ${{ github.event.inputs.mode == 'fetch' && '20' || '30' }}; else echo "OneDrive not linked yet"; fi
+      - name: Save progress
         if: ${{ always() && github.event.inputs.mode != 'probe' }}
         run: |
           git config user.name "collector"; git config user.email "actions@github.com"
