@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
     inputs:
       mode: { description: 'probe or index', default: 'probe' }
+  schedule:
+    - cron: '30 21 * * *'      # once a day, 03:00 IST
 permissions:
   contents: write
 concurrency: { group: index, cancel-in-progress: false }
