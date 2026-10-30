@@ -3,8 +3,6 @@ on:
   workflow_dispatch:
     inputs:
       mode: { description: 'probe or index', default: 'probe' }
-  schedule:
-    - cron: '30 21 * * *'      # once a day, 03:00 IST
 permissions:
   contents: write
 concurrency: { group: index, cancel-in-progress: false }
@@ -16,7 +14,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Probe the Gazette
         if: ${{ github.event.inputs.mode == 'probe' }}
-        run: python3 -I collect.py probe
+        run: |
+          curl -s -m 15 https://ipinfo.io/json | grep -E '"(ip|country|region|org)"' || true
+          for u in https://egazette.gov.in/ https://www.legislative.gov.in/ https://www.google.com/; do
+            curl -s -o /dev/null -m 25 -w "$u http=%{http_code} ip=%{remote_ip} connect=%{time_connect}s total=%{time_total}s\n" "$u" || echo "$u failed exit $?"
+          done
+          getent hosts egazette.gov.in || true
       - name: One capped run
         if: ${{ github.event.inputs.mode != 'probe' }}
         run: python3 -I collect.py index 300
