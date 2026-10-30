@@ -1,0 +1,28 @@
+name: Index
+on:
+  workflow_dispatch:
+    inputs:
+      mode: { description: 'probe or index', default: 'probe' }
+  schedule:
+    - cron: '30 21 * * *'      # once a day, 03:00 IST
+permissions:
+  contents: write
+concurrency: { group: index, cancel-in-progress: false }
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe the Gazette
+        if: ${{ github.event.inputs.mode == 'probe' }}
+        run: python3 -I collect.py probe
+      - name: One capped run
+        if: ${{ github.event.inputs.mode != 'probe' }}
+        run: python3 -I collect.py index 300
+      - name: Save progress
+        if: ${{ always() && github.event.inputs.mode != 'probe' }}
+        run: |
+          git config user.name "collector"; git config user.email "actions@github.com"
+          git add catalogue.jsonl months_done.txt 2>/dev/null || true
+          git commit -qm "Progress $(date -u +%F)" && git push -q || echo "nothing new"
