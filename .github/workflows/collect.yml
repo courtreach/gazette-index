@@ -24,11 +24,17 @@ jobs:
         if: ${{ github.event.inputs.mode == 'probe' }}
         run: python3 -I collect.py probe
       - name: One capped run
+        if: ${{ github.event.inputs.mode != 'probe' && github.event.inputs.mode != 'fetch' }}
+        run: python3 -I collect.py index 270
+      - name: PDFs to OneDrive
         if: ${{ github.event.inputs.mode != 'probe' }}
-        run: python3 -I collect.py index 300
-      - name: Save progress
+        env:
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_REFRESH: ${{ secrets.MS_REFRESH }}
+        run: |
+          if [ -n "$MS_REFRESH" ]; then python3 -I collect.py fetch ${{ github.event.inputs.mode == 'fetch' && '20' || '30' }}; else echo "OneDrive not linked yet"; fi
         if: ${{ always() && github.event.inputs.mode != 'probe' }}
         run: |
           git config user.name "collector"; git config user.email "actions@github.com"
-          git add catalogue.jsonl months_done.txt 2>/dev/null || true
-          git commit -qm "Progress $(date -u +%F)" && git push -q || echo "nothing new"
+          git add catalogue.jsonl months_done.txt have.txt 2>/dev/null || true
+          git commit -qm "Progress $(date -u +%F)" && git pull -q --rebase && git push -q || echo "nothing new"

@@ -99,9 +99,10 @@ def catalogue(a, b):
 ACT = re.compile(r'Part II-? ?Section 1\b(?!-?A)', re.I)
 RULE_PART = re.compile(r'Part II-? ?Section 3-? ?Sub-? ?Section \(i\)|Part III-? ?Section 4', re.I)
 RULE_WORD = re.compile(r'\b(rules?|regulations?|bye-?laws?)\b', re.I)
+NOT_RULE = re.compile(r'in pursuance of sub.?rule|under rule \d|of rule \(?\d|rule \(?\d+\)? of', re.I)       # (a notice made under a rule is not a Rule)
 def wanted(r):
     if ACT.search(r['part']): return 'act'
-    if RULE_PART.search(r['part']) and RULE_WORD.search(r['subject']): return 'rule'
+    if RULE_PART.search(r['part']) and RULE_WORD.search(r['subject']) and not NOT_RULE.search(r['subject']): return 'rule'
     return None
 
 def entries():
@@ -135,6 +136,54 @@ def report():
     n = sum(len(fs) for _, _, fs in os.walk(HOME + '/pdf')) if os.path.isdir(HOME + '/pdf') else 0
     print('catalogued', len(e), dict(c), 'pdfs', n)
 
+# ---------- OneDrive: only this app's own folder (Apps/<app name>), through Microsoft's AppFolder permission ----------
+GRAPH = 'https://graph.microsoft.com/v1.0/me/drive/special/approot'
+
+def ms_token():
+    """A short-lived access token from the sign-in kept as a GitHub secret. Never printed."""
+    d = urllib.parse.urlencode({'client_id': os.environ['MS_CLIENT_ID'], 'grant_type': 'refresh_token', 'refresh_token': os.environ['MS_REFRESH'], 'scope': 'Files.ReadWrite.AppFolder offline_access'})
+    o = subprocess.run(['curl', '-s', '-m', '40', '--data-binary', d, 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token'], capture_output=True, text=True).stdout
+    j = json.loads(o)
+    if 'access_token' not in j: raise IOError('sign-in refused: ' + str(j.get('error')))
+    return j['access_token']
+
+def upload(tok, path, name):
+    """One PDF into the app folder, through an upload session (any size), in 10 MB pieces."""
+    H = ['-H', 'Authorization: Bearer ' + tok]
+    u = urllib.parse.quote(name)
+    o = subprocess.run(['curl', '-s', '-m', '60', '-X', 'POST', *H, '-H', 'Content-Type: application/json', '-d', '{"item":{"@microsoft.graph.conflictBehavior":"replace"}}', f'{GRAPH}:/{u}:/createUploadSession'], capture_output=True, text=True).stdout
+    url = json.loads(o).get('uploadUrl')
+    if not url: raise IOError('no upload slot: ' + o[:160])
+    size, step = os.path.getsize(path), 10 * 1024 * 1024 - (10 * 1024 * 1024) % 327680
+    with open(path, 'rb') as f:
+        for at in range(0, size, step):
+            part = f.read(step); end = at + len(part) - 1
+            q = subprocess.run(['curl', '-s', '-m', '300', '-o', '/dev/null', '-w', '%{http_code}', '-X', 'PUT', '-H', f'Content-Range: bytes {at}-{end}/{size}', '--data-binary', '@-', url], input=part, capture_output=True).stdout.decode()
+            if q not in ('200', '201', '202'): raise IOError('upload http ' + q)
+
+def fetch(minutes):
+    """One capped run of the wanted PDFs: from the Gazette to OneDrive, and off this machine."""
+    DEADLINE[0] = time.time() + float(minutes) * 60
+    tok, got, fails = ms_token(), 0, 0
+    made = time.time()
+    have = set(open(HAVE).read().split()) if os.path.exists(HAVE) else set()
+    for r in entries():
+        if time.time() >= DEADLINE[0]: break
+        kind = wanted(r)
+        if not kind or r['num'] in have: continue
+        y = r['published'][-4:]; num = r['num']; p = f'/tmp/{num}.pdf'
+        q = subprocess.run(['curl', '-sL', '-m', '180', '-A', UA, '-o', p, '-w', '%{http_code}', f'{SITE}/WriteReadData/{y}/{num}.pdf'], capture_output=True, text=True).stdout
+        if q == '200' and open(p, 'rb').read(5) == b'%PDF-':
+            if time.time() - made > 2400: tok, made = ms_token(), time.time()      # (a token lasts about an hour)
+            upload(tok, p, f'{kind}s/{y}/{num}.pdf')
+            open(HAVE, 'a').write(num + '\n'); got += 1; fails = 0
+        else:
+            fails += 1; log('no pdf', r['id'], q)
+            if fails >= 8: log('stopping after repeated failures'); break
+        if os.path.exists(p): os.remove(p)
+        time.sleep(DELAY)
+    log('uploaded', got)
+
 def index(minutes):
     """One capped run of the catalogue: months not yet listed, newest first."""
     DEADLINE[0] = time.time() + float(minutes) * 60
@@ -150,4 +199,4 @@ def probe():
     print('rows', len(rows(r)), re.findall(r'Total No\. of Gazettes\s*:\s*\d+', r))
 
 if __name__ == '__main__':
-    {'catalogue': lambda: catalogue(sys.argv[2], sys.argv[3]), 'download': download, 'report': report, 'probe': probe, 'index': lambda: index(sys.argv[2])}[sys.argv[1]]()
+    {'catalogue': lambda: catalogue(sys.argv[2], sys.argv[3]), 'download': download, 'report': report, 'probe': probe, 'index': lambda: index(sys.argv[2]), 'fetch': lambda: fetch(sys.argv[2])}[sys.argv[1]]()
