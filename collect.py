@@ -99,7 +99,7 @@ def catalogue(a, b):
 ACT = re.compile(r'Part II-? ?Section 1\b(?!-?A)', re.I)
 RULE_PART = re.compile(r'Part II-? ?Section 3-? ?Sub-? ?Section \(i\)|Part III-? ?Section 4', re.I)
 RULE_WORD = re.compile(r'\b(rules?|regulations?|bye-?laws?)\b', re.I)
-NOT_RULE = re.compile(r'in pursuance of sub.?rule|under rule \d|of rule \(?\d|rule \(?\d+\)? of', re.I)       # (a notice made under a rule is not a Rule)
+NOT_RULE = re.compile(r'\bdrafts?\b|in pursuance of sub.?rule|under rule \d|of rule \(?\d|rule \(?\d+\)? of', re.I)       # (a draft is not yet law, and a notice made under a rule is not a Rule)
 def wanted(r):
     if ACT.search(r['part']): return 'act'
     if RULE_PART.search(r['part']) and RULE_WORD.search(r['subject']) and not NOT_RULE.search(r['subject']): return 'rule'
