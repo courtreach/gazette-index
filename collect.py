@@ -138,12 +138,17 @@ def report():
 
 # ---------- OneDrive: through a door in the gatekeeper that can only open upload slots in "Gazette Collection" ----------
 MIN_FREE = 25 * 1024 ** 3                # OneDrive is shared with the chamber's own files: stop while this much is still free
+MAX_TOTAL = 50 * 1024 ** 3               # and the whole collection never grows past this
 
 def gate(body):
     """Ask the gatekeeper (address and key are GitHub secrets, never printed)."""
     o = subprocess.run(['curl', '-s', '-m', '60', '-X', 'POST', '-H', 'X-Gazette-Key: ' + os.environ['GATE_KEY'], '-H', 'Content-Type: application/json', '-d', json.dumps(body), os.environ['GATE_URL'].rstrip('/') + '/api/gazette/slot'], capture_output=True, text=True).stdout
     try: return json.loads(o)
     except ValueError: raise IOError('gatekeeper gave no answer')
+
+def bytes_of(r):
+    m = re.fullmatch(r'([\d.]+)\s*([KMG])B', r['size'] or '')
+    return int(float(m.group(1)) * 1024 ** ' KMG'.index(m.group(2))) if m else 0
 
 def upload(path, name):
     """One PDF, through an upload session (any size), in 10 MB pieces."""
@@ -162,6 +167,8 @@ def fetch(minutes):
     free = gate({'space': True}).get('free', 0)
     got, fails = 0, 0
     have = set(open(HAVE).read().split()) if os.path.exists(HAVE) else set()
+    total = sum(bytes_of(r) for r in entries() if r['num'] in have)
+    log(f'OneDrive free {free / 1024 ** 3:.0f} GB, collection {total / 1024 ** 3:.1f} GB')
     for r in entries():
         if time.time() >= DEADLINE[0]: break
         kind = wanted(r)
@@ -170,7 +177,9 @@ def fetch(minutes):
         q = subprocess.run(['curl', '-sL', '-m', '180', '-A', UA, '-o', p, '-w', '%{http_code}', f'{SITE}/WriteReadData/{y}/{num}.pdf'], capture_output=True, text=True).stdout
         if q == '200' and open(p, 'rb').read(5) == b'%PDF-':
             free -= os.path.getsize(p)
+            total += os.path.getsize(p)
             if free < MIN_FREE: log('stopping: OneDrive is nearly full'); os.remove(p); break
+            if total > MAX_TOTAL: log('stopping: the collection has reached its limit'); os.remove(p); break
             upload(p, f'{kind}s/{y}/{num}.pdf')
             open(HAVE, 'a').write(num + '\n'); got += 1; fails = 0
         else:
