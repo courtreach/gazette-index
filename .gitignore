@@ -4,3 +4,5 @@ __pycache__/
 collect.log
 run.out
 link_onedrive.py
+setup_gazette.py
+gatekeeper.before-gazette.js
