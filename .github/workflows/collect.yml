@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
     inputs:
       mode: { description: 'probe, index or fetch', default: 'probe' }
+      index_minutes: { description: 'minutes of listing', default: '270' }
+      fetch_minutes: { description: 'minutes of PDFs', default: '30' }
   schedule:
     - cron: '30 21 * * *'      # once a day, 03:00 IST
 permissions:
@@ -25,17 +27,18 @@ jobs:
         run: python3 -I collect.py probe
       - name: One capped run
         if: ${{ github.event.inputs.mode != 'probe' && github.event.inputs.mode != 'fetch' }}
-        run: python3 -I collect.py index 270
+        run: python3 -I collect.py index ${{ github.event.inputs.index_minutes || '270' }}
       - name: PDFs to OneDrive
         if: ${{ github.event.inputs.mode != 'probe' }}
         env:
           GATE_URL: ${{ secrets.GATE_URL }}
           GATE_KEY: ${{ secrets.GATE_KEY }}
         run: |
-          if [ -n "$GATE_KEY" ]; then python3 -I collect.py fetch ${{ github.event.inputs.mode == 'fetch' && '20' || '30' }}; else echo "OneDrive not linked yet"; fi
+          if [ -n "$GATE_KEY" ]; then python3 -I collect.py fetch ${{ github.event.inputs.fetch_minutes || '30' }}; else echo "OneDrive not linked yet"; fi
       - name: Save progress
         if: ${{ always() && github.event.inputs.mode != 'probe' }}
         run: |
           git config user.name "collector"; git config user.email "actions@github.com"
-          git add catalogue.jsonl months_done.txt have.txt 2>/dev/null || true
+          touch catalogue.jsonl months_done.txt have.txt
+          git add catalogue.jsonl months_done.txt have.txt
           if git commit -qm "Progress $(date -u +%F)"; then git pull -q --rebase; git push -q; else echo "nothing new"; fi
